@@ -5,6 +5,7 @@ import kz.aitu.endtermapi.exception.DuplicateResourceException;
 import kz.aitu.endtermapi.exception.InvalidInputException;
 import kz.aitu.endtermapi.exception.ResourceNotFoundException;
 import kz.aitu.endtermapi.model.BookBase;
+import kz.aitu.endtermapi.patterns.singleton.CacheManager;
 import kz.aitu.endtermapi.repository.interfaces.AuthorRepositoryInterface;
 import kz.aitu.endtermapi.repository.interfaces.BookRepositoryInterface;
 import kz.aitu.endtermapi.service.interfaces.BookServiceInterface;
@@ -17,6 +18,7 @@ public class BookService implements BookServiceInterface {
 
     private final BookRepositoryInterface bookRepo;
     private final AuthorRepositoryInterface authorRepo;
+    private final String CACHE_KEY = "all_books";
 
     public BookService(BookRepositoryInterface bookRepo , AuthorRepositoryInterface authorRepo){
         this.bookRepo = bookRepo;
@@ -35,7 +37,11 @@ public class BookService implements BookServiceInterface {
                 throw new InvalidInputException("Author does not exist: id=" + book.getAuthor().getAuthorId());
             }
 
-            return bookRepo.create(book);
+            int newId = bookRepo.create(book);
+
+            CacheManager.getInstance().invalidate(CACHE_KEY);
+
+            return newId;
 
         } catch (SQLException e) {
             throw new DatabaseOperationException("Failed to create book", e);
@@ -43,8 +49,17 @@ public class BookService implements BookServiceInterface {
     }
 
     public List<BookBase> getAll() {
+
+        Object cached = CacheManager.getInstance().get(CACHE_KEY);
+        if (cached != null){
+            System.out.println("Cache returning datd from memory");
+            return (List<BookBase>) cached;
+        }
         try {
-            return bookRepo.getAll();
+            System.out.println("Fetching from database");
+            List<BookBase> books = bookRepo.getAll();
+            CacheManager.getInstance().put(CACHE_KEY, books);
+            return books;
         } catch (SQLException e) {
             throw new DatabaseOperationException("Failed to fetch books", e);
         }
@@ -78,6 +93,7 @@ public class BookService implements BookServiceInterface {
             if (!ok) {
                 throw new ResourceNotFoundException("Book not found: id=" + id);
             }
+            CacheManager.getInstance().invalidate(CACHE_KEY);
 
         }catch (SQLException e) {
             throw new DatabaseOperationException("Failed to update book", e);
@@ -90,6 +106,7 @@ public class BookService implements BookServiceInterface {
             if (!ok){
                 throw new ResourceNotFoundException("Book not found: id=" + id);
             }
+            CacheManager.getInstance().invalidate(CACHE_KEY);
         } catch (SQLException e) {
             throw new DatabaseOperationException("Failed to delete book", e);
         }
@@ -101,7 +118,7 @@ public class BookService implements BookServiceInterface {
         }
 
         try {
-            b.requireValid(); // ✅ Validatable default method
+            b.requireValid();
         } catch (IllegalArgumentException ex) {
             throw new InvalidInputException(ex.getMessage());
         }
